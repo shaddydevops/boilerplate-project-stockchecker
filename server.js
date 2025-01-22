@@ -1,55 +1,72 @@
 'use strict';
 require('dotenv').config();
-const express     = require('express');
-const bodyParser  = require('body-parser');
-const cors        = require('cors');
+const express = require('express');
+const bodyParser = require('body-parser');
+const cors = require('cors');
+const helmet = require('helmet');
+const mongoose = require('mongoose');
+const rateLimit = require('express-rate-limit');
 
-const apiRoutes         = require('./routes/api.js');
-const fccTestingRoutes  = require('./routes/fcctesting.js');
-const runner            = require('./test-runner');
+const apiRoutes = require('./routes/api.js');
+const fccTestingRoutes = require('./routes/fcctesting.js');
+const runner = require('./test-runner');
 
 const app = express();
 
-app.use('/public', express.static(process.cwd() + '/public'));
-
-app.use(cors({origin: '*'})); //For FCC testing purposes only
-
+// Middleware
+app.use(helmet());
+app.use(cors({ origin: '*' }));
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
-//Index page (static HTML)
+// Rate Limiting
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // Limit each IP to 100 requests per window
+});
+app.use(limiter);
+
+// MongoDB Atlas Connection
+mongoose.connect(process.env.DB, {
+  useNewUrlParser: true,
+  useUnifiedTopology: true,
+})
+  .then(() => console.log('Connected to MongoDB Atlas'))
+  .catch((err) => console.error('Failed to connect to MongoDB Atlas:', err));
+
+// Static Files
+app.use('/public', express.static(process.cwd() + '/public'));
+
+// Index Route
 app.route('/')
-  .get(function (req, res) {
+  .get((req, res) => {
     res.sendFile(process.cwd() + '/views/index.html');
   });
 
-//For FCC testing purposes
+// FreeCodeCamp Testing
 fccTestingRoutes(app);
 
-//Routing for API 
-apiRoutes(app);  
-    
-//404 Not Found Middleware
-app.use(function(req, res, next) {
-  res.status(404)
-    .type('text')
-    .send('Not Found');
+// API Routes
+apiRoutes(app);
+
+// 404 Middleware
+app.use((req, res) => {
+  res.status(404).type('text').send('Not Found');
 });
 
-//Start our server and tests!
-const listener = app.listen(process.env.PORT || 3000, function () {
-  console.log('Your app is listening on port ' + listener.address().port);
-  if(process.env.NODE_ENV==='test') {
+// Start Server and Tests
+const listener = app.listen(process.env.PORT || 3000, () => {
+  console.log(`Your app is listening on port ${listener.address().port}`);
+  if (process.env.NODE_ENV === 'test') {
     console.log('Running Tests...');
-    setTimeout(function () {
+    setTimeout(() => {
       try {
         runner.run();
-      } catch(e) {
-        console.log('Tests are not valid:');
-        console.error(e);
+      } catch (err) {
+        console.error('Tests are not valid:', err);
       }
     }, 3500);
   }
 });
 
-module.exports = app; //for testing
+module.exports = app; // For testing
